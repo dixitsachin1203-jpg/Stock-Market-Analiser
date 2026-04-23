@@ -1,18 +1,23 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import numpy as np
+import plotly.graph_objects as go
 
 # ---------------------------
-# PAGE SETUP
+# PAGE CONFIG
 # ---------------------------
-st.set_page_config(page_title="Excel Stock Analyzer", layout="wide")
-st.title("📊 Stock Analyzer (Excel Based - Offline)")
+st.set_page_config(page_title="Stock Analyzer", layout="wide")
+st.title("📊 Excel-Based Stock Analyzer (Streamlit)")
 
 # ---------------------------
 # LOAD EXCEL FILE
 # ---------------------------
-df = pd.read_excel("stock_data.xlsx")
+@st.cache_data
+def load_data():
+    df = pd.read_excel("stock_data.xlsx", engine="openpyxl")
+    return df
+
+df = load_data()
 
 # ---------------------------
 # STOCK SELECTION
@@ -20,7 +25,7 @@ df = pd.read_excel("stock_data.xlsx")
 stocks = df["Stock"].unique()
 selected_stock = st.selectbox("Select Stock", stocks)
 
-data = df[df["Stock"] == selected_stock].reset_index(drop=True)
+data = df[df["Stock"] == selected_stock].copy().reset_index(drop=True)
 
 if data.empty:
     st.error("No data found for selected stock")
@@ -43,12 +48,12 @@ def rsi(series, period=5):
 data["RSI"] = rsi(data["Close"])
 
 # ---------------------------
-# CLEAN LAST ROW
+# CLEAN LAST ROW SAFELY
 # ---------------------------
 latest = data.iloc[-1]
 
-def safe(x, default=0):
-    return float(x) if pd.notna(x) else default
+def safe(val, default=0.0):
+    return float(val) if pd.notna(val) else default
 
 close = safe(latest["Close"])
 rsi_val = safe(latest["RSI"], 50)
@@ -72,12 +77,12 @@ elif rsi_val > 70 and ema5 < ema10:
     signal = "SELL 🔴"
 
 # ---------------------------
-# UI METRICS
+# DASHBOARD METRICS
 # ---------------------------
 col1, col2, col3, col4 = st.columns(4)
 
 col1.metric("Stock", selected_stock)
-col2.metric("Close", close)
+col2.metric("Close Price", close)
 col3.metric("Signal", signal)
 col4.metric("RSI", round(rsi_val, 2))
 
@@ -88,14 +93,14 @@ st.divider()
 # ---------------------------
 fig = go.Figure()
 
-fig.add_trace(go.Scatter(y=data["Close"], name="Close"))
+fig.add_trace(go.Scatter(y=data["Close"], name="Close Price"))
 fig.add_trace(go.Scatter(y=data["EMA5"], name="EMA5"))
 fig.add_trace(go.Scatter(y=data["EMA10"], name="EMA10"))
 
 fig.add_hline(y=support, line_color="green", annotation_text="Support")
 fig.add_hline(y=resistance, line_color="red", annotation_text="Resistance")
 
-fig.update_layout(template="plotly_dark", height=550)
+fig.update_layout(template="plotly_dark", height=600)
 
 st.plotly_chart(fig, use_container_width=True)
 
@@ -105,17 +110,17 @@ st.plotly_chart(fig, use_container_width=True)
 st.subheader("🎯 Trade Levels")
 
 c1, c2 = st.columns(2)
-c1.metric("Stoploss", support)
-c2.metric("Target", resistance)
+c1.metric("Stoploss (Support)", support)
+c2.metric("Target (Resistance)", resistance)
 
 # ---------------------------
 # INSIGHT
 # ---------------------------
-st.subheader("🧠 Market Insight")
+st.subheader("🧠 Analysis Result")
 
-if signal.startswith("BUY"):
-    st.success("Strong bullish momentum detected.")
-elif signal.startswith("SELL"):
-    st.error("Bearish pressure detected.")
+if signal == "BUY 🟢":
+    st.success("Bullish setup detected: Momentum + trend alignment")
+elif signal == "SELL 🔴":
+    st.error("Bearish setup detected: Weak momentum")
 else:
-    st.warning("No strong trend. Market is neutral.")
+    st.warning("No strong trend detected. Market is neutral")
