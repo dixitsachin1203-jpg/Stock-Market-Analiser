@@ -1,7 +1,5 @@
 streamlit
-yfinance
-plotly
 pandas
+plotly
+openpyxl
 numpy
-requests
-textblob
