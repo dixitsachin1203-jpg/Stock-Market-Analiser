@@ -3,86 +3,112 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import requests
-from textblob import TextBlob
 
-# -------------------------------
-# Page Setup
-# -------------------------------
-st.set_page_config(page_title="AI Stock Analyzer", layout="wide")
-st.title("📊 AI Stock Market Analyzer (Tech + News)")
+# ---------------------------
+# PAGE CONFIG
+# ---------------------------
+st.set_page_config(page_title="Smart Stock Analyzer", layout="wide")
 
-# -------------------------------
-# Sidebar Inputs
-# -------------------------------
-st.sidebar.header("Stock Settings")
-symbol = st.sidebar.text_input("Enter Stock Symbol", "RELIANCE.NS")
+st.title("📊 Smart Stock Market Analyzer")
+
+# ---------------------------
+# SIDEBAR
+# ---------------------------
+st.sidebar.header("Stock Selection")
+
+# Predefined stock list (you can expand this anytime)
+stock_options = {
+    "Reliance (India)": "RELIANCE.NS",
+    "TCS (India)": "TCS.NS",
+    "Infosys (India)": "INFY.NS",
+    "HDFC Bank (India)": "HDFCBANK.NS",
+    "ICICI Bank (India)": "ICICIBANK.NS",
+    "SBI (India)": "SBIN.NS",
+    "Apple (US)": "AAPL",
+    "Tesla (US)": "TSLA",
+    "Microsoft (US)": "MSFT",
+    "NVIDIA (US)": "NVDA"
+}
+
+selected_stock = st.sidebar.selectbox(
+    "Choose Stock",
+    list(stock_options.keys())
+)
+
+symbol = stock_options[selected_stock]
+
 period = st.sidebar.selectbox("Select Period", ["1mo", "3mo", "6mo", "1y"])
 
-# -------------------------------
-# Fetch Stock Data
-# -------------------------------
-data = yf.download(symbol, period=period, interval="1d")
+# ---------------------------
+# DATA FETCH (SAFE)
+# ---------------------------
+@st.cache_data
+def load_data(symbol, period):
+    try:
+        data = yf.download(symbol, period=period, interval="1d", progress=False)
+        return data
+    except Exception:
+        return pd.DataFrame()
 
-if data.empty:
-    st.error("No data found. Try another symbol.")
+data = load_data(symbol, period)
+
+# ---------------------------
+# VALIDATION
+# ---------------------------
+if data is None or data.empty:
+    st.error("❌ No data found. Try another stock.")
     st.stop()
 
-# -------------------------------
-# Technical Indicators
-# -------------------------------
-
-# RSI
-def compute_rsi(series, period=14):
+# ---------------------------
+# INDICATORS
+# ---------------------------
+def rsi(series, period=14):
     delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-data["RSI"] = compute_rsi(data["Close"])
-
-# EMA
+data["RSI"] = rsi(data["Close"])
 data["EMA20"] = data["Close"].ewm(span=20).mean()
 data["EMA50"] = data["Close"].ewm(span=50).mean()
 
-# -------------------------------
-# Support & Resistance (Simple)
-# -------------------------------
-support = data["Low"].rolling(window=10).min().iloc[-1]
-resistance = data["High"].rolling(window=10).max().iloc[-1]
+# ---------------------------
+# SUPPORT / RESISTANCE
+# ---------------------------
+support = data["Low"].rolling(10).min().iloc[-1]
+resistance = data["High"].rolling(10).max().iloc[-1]
 
-# -------------------------------
-# Buy/Sell Logic
-# -------------------------------
 latest = data.iloc[-1]
 
-signal = "HOLD"
+# ---------------------------
+# SIGNAL LOGIC
+# ---------------------------
+signal = "HOLD 🟡"
 
-if latest["RSI"] < 30 and latest["EMA20"] > latest["EMA50"] and latest["Close"] > support:
+if latest["RSI"] < 30 and latest["EMA20"] > latest["EMA50"]:
     signal = "BUY 🟢"
-elif latest["RSI"] > 70 and latest["Close"] < resistance:
+elif latest["RSI"] > 70 and latest["EMA20"] < latest["EMA50"]:
     signal = "SELL 🔴"
 
-# Stoploss & Target
 stoploss = support
 target = resistance
 
-# -------------------------------
-# Metrics UI
-# -------------------------------
+# ---------------------------
+# METRICS
+# ---------------------------
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Stock", symbol)
+col1.metric("Stock", selected_stock)
 col2.metric("Price", f"{latest['Close']:.2f}")
 col3.metric("Signal", signal)
 col4.metric("RSI", f"{latest['RSI']:.2f}")
 
 st.divider()
 
-# -------------------------------
-# Candlestick Chart
-# -------------------------------
+# ---------------------------
+# CHART
+# ---------------------------
 fig = go.Figure()
 
 fig.add_trace(go.Candlestick(
@@ -94,61 +120,36 @@ fig.add_trace(go.Candlestick(
     name="Price"
 ))
 
-# Support / Resistance lines
-fig.add_hline(y=support, line_dash="dash", line_color="green", annotation_text="Support")
-fig.add_hline(y=resistance, line_dash="dash", line_color="red", annotation_text="Resistance")
+fig.add_hline(y=support, line_color="green", line_dash="dash", annotation_text="Support")
+fig.add_hline(y=resistance, line_color="red", line_dash="dash", annotation_text="Resistance")
 
-fig.update_layout(template="plotly_dark", title="Stock Chart with Support & Resistance")
+fig.update_layout(template="plotly_dark", height=600)
 
 st.plotly_chart(fig, use_container_width=True)
 
-# -------------------------------
-# Stoploss & Target
-# -------------------------------
+# ---------------------------
+# TRADE LEVELS
+# ---------------------------
 st.subheader("🎯 Trade Levels")
 
-col5, col6 = st.columns(2)
-col5.metric("Stoploss", f"{stoploss:.2f}")
-col6.metric("Target", f"{target:.2f}")
+c1, c2 = st.columns(2)
+c1.metric("Stoploss", f"{stoploss:.2f}")
+c2.metric("Target", f"{target:.2f}")
 
-# -------------------------------
-# News Section (Free API alternative via RSS-like scraping)
-# -------------------------------
-st.subheader("📰 Latest Business News")
-
-def get_news():
-    url = f"https://newsapi.org/v2/everything?q=stock OR market OR economy&sortBy=publishedAt&language=en&apiKey=YOUR_API_KEY"
-    return None
-
-st.info("To enable real news, add NewsAPI key (free at newsapi.org)")
-
-# Demo static news (fallback)
-news = [
-    "Oil prices rise due to global tensions",
-    "FIIs continue selling in Indian markets",
-    "RBI maintains repo rate unchanged",
-    "Tech stocks show strong earnings growth"
-]
-
-for n in news:
-    sentiment = TextBlob(n).sentiment.polarity
-    if sentiment > 0:
-        tag = "🟢 Positive"
-    elif sentiment < 0:
-        tag = "🔴 Negative"
-    else:
-        tag = "🟡 Neutral"
-
-    st.write(f"• {n}  —  {tag}")
-
-# -------------------------------
-# Final Insight
-# -------------------------------
-st.subheader("🧠 AI Insight (Rule-based)")
+# ---------------------------
+# INSIGHT
+# ---------------------------
+st.subheader("🧠 Insight Engine")
 
 if signal.startswith("BUY"):
-    st.success("Market shows bullish setup. Consider BUY with risk management.")
+    st.success("Bullish setup: Oversold + trend confirmation.")
 elif signal.startswith("SELL"):
-    st.error("Market shows bearish signals. Avoid long positions.")
+    st.error("Bearish setup: Overbought + weakness detected.")
 else:
     st.warning("No strong trend detected. Wait for confirmation.")
+
+# ---------------------------
+# RAW DATA (OPTIONAL)
+# ---------------------------
+with st.expander("📊 View Raw Data"):
+    st.dataframe(data.tail())
