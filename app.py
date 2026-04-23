@@ -2,51 +2,74 @@ import streamlit as st
 import plotly.graph_objects as go
 
 # ---------------------------
-# PAGE CONFIG
+# PAGE CONFIG + UI STYLE
 # ---------------------------
-st.set_page_config(page_title="Stock Analyzer", layout="centered")
-st.title("📊 Manual Stock Investment Analyzer")
+st.set_page_config(page_title="Robo Stock Analyst", layout="wide")
 
-st.markdown("Enter stock fundamentals to get investment advice (BUY / HOLD / SELL)")
+st.markdown("""
+    <style>
+    .main {background-color:#0e1117;}
+    .block-container {padding-top:2rem;}
+    </style>
+""", unsafe_allow_html=True)
 
-# ---------------------------
-# USER INPUTS
-# ---------------------------
-st.subheader("📌 Stock Details")
+st.title("📊 Robo Stock Analyst Dashboard")
 
-price = st.number_input("Current Market Price", min_value=1.0)
-
-pe_ratio = st.number_input("P/E Ratio", min_value=0.0)
-pb_ratio = st.number_input("P/B Ratio", min_value=0.0)
-roe = st.number_input("ROE (%)", min_value=0.0)
-debt = st.number_input("Debt Ratio", min_value=0.0)
-growth = st.number_input("Expected Growth (%)", min_value=0.0)
-
-st.subheader("⏳ Investment Preference")
-
-horizon = st.radio("Holding Type", ["Short Term (1-6 months)", "Long Term (1-5 years)"])
-
-risk = st.selectbox("Risk Appetite", ["Low", "Medium", "High"])
+st.markdown("### Enter stock fundamentals for deep valuation analysis")
 
 # ---------------------------
-# SCORE ENGINE
+# INPUT SECTION (MORE SPECIFIC)
+# ---------------------------
+col1, col2 = st.columns(2)
+
+with col1:
+    price = st.number_input("📌 Current Market Price", min_value=1.0)
+    pe = st.number_input("📊 P/E Ratio", min_value=0.1)
+    pb = st.number_input("📊 P/B Ratio", min_value=0.1)
+
+with col2:
+    roe = st.number_input("📈 ROE (%)", min_value=0.1)
+    debt = st.number_input("⚠ Debt-to-Equity Ratio", min_value=0.0)
+    margin = st.number_input("💰 Profit Margin (%)", min_value=0.0)
+
+risk = st.selectbox("🎯 Risk Profile", ["Low", "Medium", "High"])
+
+st.divider()
+
+# ---------------------------
+# EPS ESTIMATION
+# ---------------------------
+eps = price / pe if pe > 0 else 0
+
+# ---------------------------
+# INTRINSIC VALUE MODEL
+# ---------------------------
+discount_factor = 10  # simplified constant
+
+intrinsic_value = (eps * (8.5 + 2 * roe)) / discount_factor
+
+# ---------------------------
+# VALUE GAP
+# ---------------------------
+gap = intrinsic_value - price
+
+if gap > 0:
+    verdict = "🟢 UNDERVALUED (BUY ZONE)"
+elif gap < 0:
+    verdict = "🔴 OVERVALUED (RISKY)"
+else:
+    verdict = "🟡 FAIRLY VALUED"
+
+# ---------------------------
+# SCORE SYSTEM
 # ---------------------------
 score = 0
 
-# Valuation logic
-if pe_ratio < 15:
-    score += 3
-elif pe_ratio < 25:
-    score += 1
-else:
-    score -= 2
-
-if pb_ratio < 3:
+if pe < 20:
     score += 2
 else:
     score -= 1
 
-# Profitability
 if roe > 20:
     score += 3
 elif roe > 10:
@@ -54,114 +77,140 @@ elif roe > 10:
 else:
     score -= 2
 
-# Debt risk
-if debt < 0.5:
+if pb < 3:
     score += 2
-elif debt < 1:
-    score += 1
-else:
-    score -= 2
-
-# Growth
-if growth > 15:
-    score += 3
-elif growth > 8:
-    score += 1
 else:
     score -= 1
 
-# Risk adjustment
+if debt < 1:
+    score += 2
+else:
+    score -= 2
+
+if margin > 15:
+    score += 2
+else:
+    score -= 1
+
 if risk == "High":
     score += 1
 elif risk == "Low":
     score -= 1
 
-# Horizon adjustment
-if "Long" in horizon:
-    score += 2
+# ---------------------------
+# FINAL SIGNAL
+# ---------------------------
+if score >= 7:
+    signal = "🟢 STRONG BUY"
+elif score >= 3:
+    signal = "🟡 HOLD"
 else:
-    score -= 1
+    signal = "🔴 SELL"
 
 # ---------------------------
-# FINAL DECISION
+# DASHBOARD UI
 # ---------------------------
-if score >= 8:
-    decision = "🟢 STRONG BUY"
-elif score >= 4:
-    decision = "🟡 HOLD / ACCUMULATE"
-else:
-    decision = "🔴 SELL / AVOID"
+st.subheader("📊 Stock Overview")
 
-# ---------------------------
-# UI OUTPUT
-# ---------------------------
+c1, c2, c3 = st.columns(3)
+
+c1.metric("Market Price", price)
+c2.metric("Intrinsic Value", round(intrinsic_value, 2))
+c3.metric("Score", score)
+
 st.divider()
 
-st.subheader("📊 Result")
+# ---------------------------
+# COMPARISON CHART (PRICE VS VALUE)
+# ---------------------------
+fig1 = go.Figure()
 
-col1, col2 = st.columns(2)
+fig1.add_trace(go.Bar(
+    x=["Market Price", "Intrinsic Value"],
+    y=[price, intrinsic_value],
+    marker_color=["red", "green"]
+))
 
-col1.metric("Investment Score", score)
-col2.metric("Decision", decision)
+fig1.update_layout(template="plotly_dark", title="Price vs Intrinsic Value")
+
+st.plotly_chart(fig1, use_container_width=True)
 
 # ---------------------------
-# GAUGE CHART
+# SCORE BREAKDOWN CHART
 # ---------------------------
-fig = go.Figure(go.Indicator(
+fig2 = go.Figure()
+
+categories = ["PE", "ROE", "PB", "Debt", "Margin"]
+values = [
+    2 if pe < 20 else -1,
+    3 if roe > 20 else 1,
+    2 if pb < 3 else -1,
+    2 if debt < 1 else -2,
+    2 if margin > 15 else -1
+]
+
+fig2.add_trace(go.Bar(
+    x=categories,
+    y=values,
+    marker_color="skyblue"
+))
+
+fig2.update_layout(template="plotly_dark", title="Fundamental Score Breakdown")
+
+st.plotly_chart(fig2, use_container_width=True)
+
+# ---------------------------
+# GAUGE STYLE SCORE
+# ---------------------------
+fig3 = go.Figure(go.Indicator(
     mode="gauge+number",
     value=score,
-    title={'text': "Investment Strength"},
+    title={'text': "Investment Strength Score"},
     gauge={
-        'axis': {'range': [-5, 12]},
-        'bar': {'color': "green"},
+        'axis': {'range': [-5, 10]},
+        'bar': {'color': "blue"},
         'steps': [
             {'range': [-5, 0], 'color': "red"},
-            {'range': [0, 4], 'color': "orange"},
-            {'range': [4, 12], 'color': "lightgreen"}
+            {'range': [0, 3], 'color': "orange"},
+            {'range': [3, 10], 'color': "green"}
         ]
     }
 ))
 
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig3, use_container_width=True)
 
 # ---------------------------
-# EXPLANATION ENGINE
+# FINAL INSIGHTS PANEL
 # ---------------------------
-st.subheader("🧠 Analysis Explanation")
+st.subheader("🧠 AI Investment Analysis")
 
-explanation = []
+colA, colB = st.columns(2)
 
-if pe_ratio < 15:
-    explanation.append("✔ Low P/E suggests undervaluation")
-else:
-    explanation.append("⚠ High P/E indicates expensive valuation")
+with colA:
+    st.success(f"Signal: {signal}")
 
-if roe > 20:
-    explanation.append("✔ Strong ROE indicates good profitability")
-else:
-    explanation.append("⚠ Weak ROE indicates lower efficiency")
+with colB:
+    st.info(f"Valuation Verdict: {verdict}")
 
-if debt < 0.5:
-    explanation.append("✔ Low debt is financially safe")
-else:
-    explanation.append("⚠ High debt increases risk")
+st.markdown("### 📌 Explanation")
 
-if growth > 15:
-    explanation.append("✔ High growth potential")
-else:
-    explanation.append("⚠ Low growth expectations")
+st.write(f"""
+- EPS (Estimated): {round(eps,2)}
+- Intrinsic Value: {round(intrinsic_value,2)}
+- Market Price: {price}
+- Value Gap: {round(gap,2)}
 
-for line in explanation:
-    st.write(line)
+👉 The stock is considered **{verdict}** based on intrinsic value model and financial ratios.
+""")
 
 # ---------------------------
-# FINAL INSIGHT
+# FINAL RECOMMENDATION
 # ---------------------------
 st.divider()
 
-if decision.startswith("🟢"):
-    st.success("Strong investment opportunity detected based on fundamentals.")
-elif decision.startswith("🟡"):
-    st.warning("Moderate opportunity. Consider holding and monitoring.")
+if signal == "🟢 STRONG BUY":
+    st.success("Recommendation: Strong accumulation opportunity based on fundamentals.")
+elif signal == "🟡 HOLD":
+    st.warning("Recommendation: Hold and monitor performance.")
 else:
-    st.error("High risk or overvalued stock. Avoid investment.")
+    st.error("Recommendation: Avoid or exit position due to weak fundamentals.")
