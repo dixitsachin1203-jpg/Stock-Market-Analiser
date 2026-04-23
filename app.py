@@ -1,200 +1,167 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 
 # ---------------------------
-# PAGE CONFIG (UI UPGRADE)
+# PAGE CONFIG
 # ---------------------------
-st.set_page_config(page_title="Advanced Stock Intelligence", layout="wide")
+st.set_page_config(page_title="Stock Analyzer", layout="centered")
+st.title("📊 Manual Stock Investment Analyzer")
 
-st.markdown("""
-    <style>
-    .main {background-color:#0e1117;}
-    </style>
-""", unsafe_allow_html=True)
-
-st.title("📊 Advanced Stock Intelligence Dashboard")
+st.markdown("Enter stock fundamentals to get investment advice (BUY / HOLD / SELL)")
 
 # ---------------------------
-# LOAD DATA
+# USER INPUTS
 # ---------------------------
-@st.cache_data
-def load_data():
-    return pd.read_excel("stock_data1.xlsx", engine="openpyxl")
+st.subheader("📌 Stock Details")
 
-df = load_data()
+price = st.number_input("Current Market Price", min_value=1.0)
 
-# ---------------------------
-# STOCK SELECTION
-# ---------------------------
-stocks = df["Stock"].unique()
+pe_ratio = st.number_input("P/E Ratio", min_value=0.0)
+pb_ratio = st.number_input("P/B Ratio", min_value=0.0)
+roe = st.number_input("ROE (%)", min_value=0.0)
+debt = st.number_input("Debt Ratio", min_value=0.0)
+growth = st.number_input("Expected Growth (%)", min_value=0.0)
 
-col1, col2 = st.columns([1,2])
+st.subheader("⏳ Investment Preference")
 
-with col1:
-    selected_stock = st.selectbox("Select Stock", stocks)
+horizon = st.radio("Holding Type", ["Short Term (1-6 months)", "Long Term (1-5 years)"])
 
-data = df[df["Stock"] == selected_stock].copy()
-
-if data.empty:
-    st.error("No data found")
-    st.stop()
+risk = st.selectbox("Risk Appetite", ["Low", "Medium", "High"])
 
 # ---------------------------
-# TECHNICAL INDICATORS
-# ---------------------------
-data["EMA5"] = data["Close"].ewm(span=5).mean()
-data["EMA10"] = data["Close"].ewm(span=10).mean()
-
-def rsi(series, period=5):
-    delta = series.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = -delta.where(delta < 0, 0).rolling(period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
-data["RSI"] = rsi(data["Close"])
-
-# ---------------------------
-# LATEST VALUES
-# ---------------------------
-latest = data.iloc[-1]
-
-def safe(x):
-    return float(x) if pd.notna(x) else 0
-
-close = safe(latest["Close"])
-rsi_val = safe(latest["RSI"], 50)
-pe = safe(latest["PE"])
-pb = safe(latest["PB"])
-roe = safe(latest["ROE"])
-debt = safe(latest["Debt"])
-
-# ---------------------------
-# SUPPORT / RESISTANCE
-# ---------------------------
-support = float(data["Low"].min())
-resistance = float(data["High"].max())
-
-# ---------------------------
-# SCORE SYSTEM (VERY IMPORTANT UPGRADE)
+# SCORE ENGINE
 # ---------------------------
 score = 0
 
-# Technical scoring
-if rsi_val < 30:
-    score += 2
-elif rsi_val > 70:
+# Valuation logic
+if pe_ratio < 15:
+    score += 3
+elif pe_ratio < 25:
+    score += 1
+else:
     score -= 2
 
-if latest["EMA5"] > latest["EMA10"]:
+if pb_ratio < 3:
     score += 2
 else:
     score -= 1
 
-# Fundamental scoring (ratios)
-if pe < 20:
-    score += 2
-elif pe > 35:
+# Profitability
+if roe > 20:
+    score += 3
+elif roe > 10:
+    score += 1
+else:
     score -= 2
 
-if pb < 3:
+# Debt risk
+if debt < 0.5:
+    score += 2
+elif debt < 1:
     score += 1
-
-if roe > 20:
-    score += 1
-
-if debt < 1:
-    score += 1
-
-# ---------------------------
-# SIGNAL ENGINE (SHORT + LONG TERM)
-# ---------------------------
-if score >= 5:
-    short_signal = "BUY 🟢"
-    long_signal = "STRONG BUY 📈"
-elif score >= 2:
-    short_signal = "HOLD 🟡"
-    long_signal = "ACCUMULATE 📊"
 else:
-    short_signal = "SELL 🔴"
-    long_signal = "EXIT ⚠️"
+    score -= 2
+
+# Growth
+if growth > 15:
+    score += 3
+elif growth > 8:
+    score += 1
+else:
+    score -= 1
+
+# Risk adjustment
+if risk == "High":
+    score += 1
+elif risk == "Low":
+    score -= 1
+
+# Horizon adjustment
+if "Long" in horizon:
+    score += 2
+else:
+    score -= 1
 
 # ---------------------------
-# UI DASHBOARD CARDS
+# FINAL DECISION
 # ---------------------------
-st.subheader("📌 Stock Overview")
+if score >= 8:
+    decision = "🟢 STRONG BUY"
+elif score >= 4:
+    decision = "🟡 HOLD / ACCUMULATE"
+else:
+    decision = "🔴 SELL / AVOID"
 
-c1, c2, c3, c4 = st.columns(4)
-
-c1.metric("Price", close)
-c2.metric("RSI", rsi_val)
-c3.metric("Score", score)
-c4.metric("Signal", short_signal)
-
+# ---------------------------
+# UI OUTPUT
+# ---------------------------
 st.divider()
 
+st.subheader("📊 Result")
+
+col1, col2 = st.columns(2)
+
+col1.metric("Investment Score", score)
+col2.metric("Decision", decision)
+
 # ---------------------------
-# CHART 1 - PRICE + EMA
+# GAUGE CHART
 # ---------------------------
-fig = go.Figure()
-
-fig.add_trace(go.Scatter(y=data["Close"], name="Price"))
-fig.add_trace(go.Scatter(y=data["EMA5"], name="EMA 5"))
-fig.add_trace(go.Scatter(y=data["EMA10"], name="EMA 10"))
-
-fig.add_hline(y=support, line_color="green", annotation_text="Support")
-fig.add_hline(y=resistance, line_color="red", annotation_text="Resistance")
-
-fig.update_layout(template="plotly_dark", height=500)
+fig = go.Figure(go.Indicator(
+    mode="gauge+number",
+    value=score,
+    title={'text': "Investment Strength"},
+    gauge={
+        'axis': {'range': [-5, 12]},
+        'bar': {'color': "green"},
+        'steps': [
+            {'range': [-5, 0], 'color': "red"},
+            {'range': [0, 4], 'color': "orange"},
+            {'range': [4, 12], 'color': "lightgreen"}
+        ]
+    }
+))
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ---------------------------
-# CHART 2 - FUNDAMENTAL RATIOS
+# EXPLANATION ENGINE
 # ---------------------------
-st.subheader("📊 Fundamental Ratios")
+st.subheader("🧠 Analysis Explanation")
 
-ratio_data = pd.DataFrame({
-    "Ratio": ["PE", "PB", "ROE", "Debt"],
-    "Value": [pe, pb, roe, debt]
-})
+explanation = []
 
-fig2 = go.Figure()
+if pe_ratio < 15:
+    explanation.append("✔ Low P/E suggests undervaluation")
+else:
+    explanation.append("⚠ High P/E indicates expensive valuation")
 
-fig2.add_trace(go.Bar(
-    x=ratio_data["Ratio"],
-    y=ratio_data["Value"],
-    marker_color=["blue", "orange", "green", "red"]
-))
+if roe > 20:
+    explanation.append("✔ Strong ROE indicates good profitability")
+else:
+    explanation.append("⚠ Weak ROE indicates lower efficiency")
 
-fig2.update_layout(template="plotly_dark", height=400)
+if debt < 0.5:
+    explanation.append("✔ Low debt is financially safe")
+else:
+    explanation.append("⚠ High debt increases risk")
 
-st.plotly_chart(fig2, use_container_width=True)
+if growth > 15:
+    explanation.append("✔ High growth potential")
+else:
+    explanation.append("⚠ Low growth expectations")
 
-# ---------------------------
-# FINAL INSIGHT PANEL
-# ---------------------------
-st.subheader("🧠 AI Style Analysis Engine")
-
-colA, colB = st.columns(2)
-
-with colA:
-    st.success(f"Short-Term Signal: {short_signal}")
-
-with colB:
-    st.info(f"Long-Term Signal: {long_signal}")
+for line in explanation:
+    st.write(line)
 
 # ---------------------------
-# SCORE BREAKDOWN
+# FINAL INSIGHT
 # ---------------------------
-with st.expander("📊 Score Breakdown"):
-    st.write({
-        "PE": pe,
-        "PB": pb,
-        "ROE": roe,
-        "Debt": debt,
-        "RSI": rsi_val,
-        "Total Score": score
-    })
+st.divider()
+
+if decision.startswith("🟢"):
+    st.success("Strong investment opportunity detected based on fundamentals.")
+elif decision.startswith("🟡"):
+    st.warning("Moderate opportunity. Consider holding and monitoring.")
+else:
+    st.error("High risk or overvalued stock. Avoid investment.")
